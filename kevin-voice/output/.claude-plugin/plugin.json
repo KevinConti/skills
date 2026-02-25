@@ -1,0 +1,10 @@
+{
+  "name": "your-voice",
+  "version": "1.0.0",
+  "description": "Apply Kevin Conti's writing voice and style for content generation.",
+  "author": {
+    "name": "Kevin"
+  },
+  "license": "MIT",
+  "keywords": ["writing", "style", "voice"]
+}
