@@ -1,0 +1,558 @@
+<!doctype html>
+<!--
+  viewer.html - interactive-plan session viewer (PROTOTYPE).
+
+  Unlike visual-grill-with-docs (read-only), this viewer is BIDIRECTIONAL:
+  the user answers questions and requests changes IN THE PAGE. It still polls
+  ./session.json + ./q-NN.json for results (the "outbox"), but it also POSTs
+  user intents to /intent (the broker appends them to inbox.ndjson). The agent
+  is woken by scripts/wait.py, reacts, and writes the next q-NN.json.
+
+  Single theme, deliberately lean - this is a prototype to feel the loop.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>interactive-plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #faf7f5; --surface: #fff; --recessed: #f3efe9;
+      --border: rgba(30,58,95,.14); --border-strong: rgba(30,58,95,.3);
+      --text: #1a1d24; --dim: #5c6573; --accent: #1e3a5f; --accent-dim: rgba(30,58,95,.08);
+      --hi: #c98a16; --hi-dim: rgba(201,138,22,.12); --ok: #2e7d4f; --err: #b3261e;
+      --display: "Instrument Serif", Georgia, serif;
+      --body: "IBM Plex Sans", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14181f; --surface: #1c2129; --recessed: #161b22;
+        --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.2);
+        --text: #ebe7df; --dim: #8a8d96; --accent: #7ba8d9; --accent-dim: rgba(123,168,217,.12);
+        --hi: #e6c065; --hi-dim: rgba(230,192,101,.15); --ok: #6cc08a; --err: #f08a82;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: var(--body); color: var(--text); background: var(--bg);
+      line-height: 1.6; -webkit-font-smoothing: antialiased;
+      display: grid; grid-template-columns: 260px 1fr; min-height: 100vh;
+    }
+    @media (max-width: 860px) { body { grid-template-columns: 1fr; } #sidebar { display: none; } }
+
+    #sidebar {
+      border-right: 1px solid var(--border); background: var(--surface);
+      padding: 24px 18px; position: sticky; top: 0; max-height: 100vh; overflow-y: auto;
+    }
+    .title { font-family: var(--display); font-size: 24px; margin: 0 0 4px; }
+    .meta { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-bottom: 18px; }
+    #sidebar h2 {
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+      color: var(--dim); margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    }
+    ol.toc { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+    ol.toc li {
+      padding: 8px 10px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      border: 1px solid transparent; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline;
+    }
+    ol.toc li:hover { background: var(--recessed); }
+    ol.toc li.active { background: var(--accent-dim); border-color: var(--accent); }
+    ol.toc .q-num { font-family: var(--mono); font-size: 10px; color: var(--accent); }
+    ol.toc .st { grid-column: 2; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+    ol.toc li.resolved .st { color: var(--ok); }
+    ol.toc li.parked .st { color: var(--dim); font-style: italic; }
+    ol.toc li.pending .st { color: var(--accent); }
+
+    main { padding: 36px 32px 96px; max-width: 820px; }
+    @media (max-width: 680px) { main { padding: 24px 16px 64px; } }
+
+    .status-bar {
+      position: fixed; top: 12px; right: 14px; font-family: var(--mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--dim); display: flex; align-items: center;
+      gap: 6px; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; z-index: 50;
+    }
+    .status-bar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transition: background .16s; }
+    .status-bar.live .dot { background: var(--ok); }
+    .status-bar.working .dot { background: var(--hi); animation: pulse 1s ease-in-out infinite; }
+    .status-bar.stale .dot { background: var(--err); }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .qhead { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 18px; }
+    .context {
+      background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      padding: 16px 20px; border-radius: 3px; margin-bottom: 28px;
+    }
+    .context .lbl { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 8px; }
+    .context p { margin: 0 0 8px; } .context p:last-child { margin: 0; }
+    .context strong { border-bottom: 1px dotted var(--hi); }
+
+    .visual { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 22px; margin-bottom: 30px; }
+    .visual .lbl { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); margin-bottom: 12px; }
+    .mermaid-wrap { display: flex; justify-content: center; overflow: auto; }
+    .mermaid svg { max-width: 100%; height: auto; }
+    pre.code {
+      margin: 0; padding: 14px 16px; background: var(--recessed); border-radius: 3px;
+      font-family: var(--mono); font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-x: auto;
+    }
+    pre.code .hl { background: var(--hi-dim); padding: 1px 3px; border-radius: 2px; }
+    pre.code .fn { color: var(--dim); font-size: 11px; display: block; margin-bottom: 8px; }
+
+    h1.q { font-family: var(--display); font-size: clamp(26px, 4vw, 38px); line-height: 1.15; margin: 0 0 24px; font-weight: 400; }
+
+    .options { display: flex; flex-direction: column; gap: 12px; }
+    .option {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+      overflow: hidden; transition: border-color .14s, background .14s;
+    }
+    .option:hover, .option.pinned { border-color: var(--border-strong); }
+    .option.chosen { border-color: var(--hi); background: var(--hi-dim); }
+    .option__head {
+      display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: baseline;
+      padding: 16px 18px; cursor: pointer; user-select: none;
+    }
+    .opt-letter { font-family: var(--mono); font-weight: 500; color: var(--accent); }
+    .opt-title { font-weight: 600; }
+    .opt-rec { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--hi); margin-left: 8px; }
+    .opt-summary { grid-column: 2; font-size: 14px; color: var(--dim); margin-top: 4px; }
+    .opt-caret { font-family: var(--mono); font-size: 11px; color: var(--dim); transition: transform .2s; }
+    .option:hover .opt-caret, .option.pinned .opt-caret { transform: rotate(90deg); }
+    .option__body {
+      max-height: 0; opacity: 0; overflow: hidden; padding: 0 18px;
+      transition: max-height .26s ease, opacity .2s ease, padding .2s ease;
+    }
+    .option:hover .option__body, .option.pinned .option__body { max-height: 2200px; opacity: 1; padding: 2px 18px 18px; }
+    .option__body h5 { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); margin: 14px 0 5px; }
+    .option__body p { margin: 0 0 8px; font-size: 14px; }
+    .option__body code { font-family: var(--mono); font-size: 90%; }
+    .option__mini { margin: 10px 0; padding: 12px; background: var(--recessed); border-radius: 3px; }
+    .option__mini .visual { background: transparent; border: 0; padding: 0; margin: 0; }
+    .option__mini .visual .lbl { display: none; }
+    .option__conflict { margin-top: 10px; padding: 10px 12px; background: rgba(179,38,30,.08); border-left: 2px solid var(--err); font-size: 13px; border-radius: 3px; }
+    .option__conflict strong { color: var(--err); }
+    .choose-btn { margin-top: 14px; }
+
+    .freeform { margin-top: 22px; }
+    .freeform textarea {
+      width: 100%; min-height: 64px; font: inherit; font-size: 14px; padding: 12px 14px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; resize: vertical;
+    }
+    .freeform textarea:focus { outline: none; border-color: var(--accent); }
+    .row { display: flex; gap: 10px; margin-top: 10px; }
+    .btn {
+      font: inherit; font-size: 13px; font-family: var(--mono); padding: 8px 16px; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+    }
+    .btn:hover:not(:disabled) { background: var(--recessed); }
+    .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    .working-banner {
+      margin: 22px 0 0; padding: 12px 16px; border-radius: 4px; background: var(--hi-dim);
+      border: 1px solid var(--hi); font-family: var(--mono); font-size: 13px; color: var(--text);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .spinner { width: 12px; height: 12px; border: 2px solid var(--hi); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Glossary term reveal (e-reader dictionary style) */
+    .term { border-bottom: 1px dotted var(--accent); cursor: help; }
+    .term:hover, .term:focus { background: var(--accent-dim); outline: none; border-radius: 2px; }
+    .term-popover {
+      position: fixed; z-index: 200; max-width: 320px;
+      background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.20); padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    }
+    .term-popover[hidden] { display: none; }
+    .tp-term { font-family: var(--mono); font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+    .tp-def { color: var(--text); }
+    .tp-avoid { margin-top: 7px; font-size: 11px; color: var(--dim); font-style: italic; }
+
+    .placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 12px; color: var(--dim); font-family: var(--mono); font-size: 13px; }
+    .placeholder .big { font-family: var(--display); font-size: 28px; color: var(--text); }
+    .empty { font-style: italic; color: var(--dim); font-size: 12px; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <h1 class="title" id="s-title">…</h1>
+    <div class="meta" id="s-meta"></div>
+    <h2>Questions</h2>
+    <ol class="toc" id="toc"></ol>
+  </aside>
+
+  <main id="page">
+    <div class="placeholder">
+      <div class="big">Waiting for the first question…</div>
+      <div>The agent will write q-01.json; this page updates itself.</div>
+    </div>
+  </main>
+
+  <div class="status-bar" id="status-bar"><span class="dot"></span><span id="status-text">connecting</span></div>
+  <div class="term-popover" id="term-popover" hidden></div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+    const POLL_MS = 750;
+    const state = {
+      session: null,
+      questions: new Map(),  // id -> q-NN.json
+      active: null,          // displayed question id
+      pendingQid: null,      // a qid we've answered and are awaiting the agent on
+      pendingLabel: "",      // human label of what we sent
+      stale: 0,
+      mermaidInit: false,
+    };
+
+    const qFile = id => `./q-${String(id).padStart(2, "0")}.json`;
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    const escAttr = s => esc(s).replace(/\n/g, "&#10;");
+
+    // Signatures of what's currently on screen. We only re-render when these
+    // change — otherwise the 750ms poll would rebuild the DOM every tick,
+    // dropping CSS :hover state and re-running mermaid (the flicker).
+    const sidebarSig = s => JSON.stringify({
+      slug: s.slug, started: s.startedAt, active: state.active,
+      qs: (s.questions || []).map(q => [q.id, q.title, q.status, q.answer]),
+    });
+    const cardSig = () => JSON.stringify({
+      active: state.active, pending: state.pendingQid, has: state.questions.has(state.active),
+    });
+
+    function setStatus(kind, msg) {
+      const bar = document.getElementById("status-bar");
+      bar.className = "status-bar " + kind;
+      document.getElementById("status-text").textContent =
+        kind === "working" ? "agent working" : kind === "live" ? "live" : kind === "stale" ? `stale · ${msg ?? ""}` : "connecting";
+    }
+
+    async function sendIntent(kind, { value = "", note = "", label = "" } = {}) {
+      armAlerts();
+      const qid = state.active;
+      const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+      // Optimistic: lock the card into a working state immediately.
+      state.pendingQid = qid;
+      state.pendingLabel = label || value || kind;
+      renderActive();
+      setStatus("working");
+      try {
+        const res = await fetch("/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, qid, kind, value, note }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+      } catch (e) {
+        // Roll back on transport failure so the user can retry.
+        state.pendingQid = null;
+        renderActive();
+        setStatus("stale", "post failed");
+      }
+    }
+
+    async function pollOnce() {
+      try {
+        const res = await fetch("./session.json", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        state.stale = 0;
+        await applySession(await res.json());
+      } catch (e) {
+        if (++state.stale > 2) setStatus("stale", e.message);
+      }
+    }
+
+    async function applySession(next) {
+      state.session = next;
+      const targetId = next.currentQuestion ?? (next.questions || []).slice(-1)[0]?.id ?? null;
+
+      // Fetch any question files we don't have yet.
+      for (const q of next.questions || []) {
+        if (!state.questions.has(q.id)) {
+          try {
+            const r = await fetch(qFile(q.id), { cache: "no-store" });
+            if (r.ok) state.questions.set(q.id, await r.json());
+          } catch {}
+        }
+      }
+
+      // The loop closes here: once the agent advances past the question we
+      // answered, clear the optimistic "working" lock and show the new card.
+      const justResolved = state.pendingQid !== null && targetId !== state.pendingQid;
+      if (justResolved) state.pendingQid = null;
+      if (state.pendingQid === null) setStatus("live");
+
+      if (targetId !== state.active) state.active = targetId;
+
+      // Re-render only what actually changed (kills the per-poll flicker).
+      if (sidebarSig(next) !== state._sidebarSig) renderSidebar(next);
+      if (cardSig() !== state._cardSig) await renderActive();
+
+      // Next card is ready after the user answered → alert if they tabbed away.
+      if (justResolved) notifyReady(targetId);
+    }
+
+    function renderSidebar(s) {
+      document.getElementById("s-title").textContent = s.slug || "session";
+      document.getElementById("s-meta").textContent = s.startedAt ? `started ${s.startedAt}` : "";
+      const toc = document.getElementById("toc");
+      toc.innerHTML = "";
+      (s.questions || []).forEach(q => {
+        const li = document.createElement("li");
+        li.className = (q.status || "pending") + (q.id === state.active ? " active" : "");
+        const num = document.createElement("span"); num.className = "q-num"; num.textContent = "Q" + q.id;
+        const t = document.createElement("span"); t.textContent = q.title || "(untitled)";
+        const st = document.createElement("span"); st.className = "st";
+        st.textContent = q.status === "resolved" ? `→ ${q.answer ?? "resolved"}` : q.status === "parked" ? "parked" : "pending";
+        li.append(num, t, st);
+        li.onclick = () => { state.active = q.id; renderActive(); renderSidebar(s); };
+        toc.appendChild(li);
+      });
+      if (!(s.questions || []).length) toc.innerHTML = '<li class="empty">No questions yet.</li>';
+      state._sidebarSig = sidebarSig(s);
+    }
+
+    function renderVisual(v, idBase) {
+      if (!v) return "";
+      if (v.type === "mermaid")
+        return `<div class="visual"><div class="lbl">Visual</div><div class="mermaid-wrap"><div class="mermaid" data-mid="${idBase}" data-source="${escAttr(v.source || "")}">…</div></div></div>`;
+      if (v.type === "code") {
+        let body = esc(v.source || "");
+        for (const h of (v.highlights || [])) {
+          const e = esc(h).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          body = body.replace(new RegExp(e, "g"), m => `<span class="hl">${m}</span>`);
+        }
+        return `<div class="visual"><div class="lbl">Visual</div><pre class="code">${v.filename ? `<span class="fn">${esc(v.filename)}</span>` : ""}${body}</pre></div>`;
+      }
+      return "";
+    }
+
+    async function renderActive() {
+      const main = document.getElementById("page");
+      if (state.active == null || !state.questions.has(state.active)) {
+        main.innerHTML = `<div class="placeholder"><div class="big">Waiting for question…</div></div>`;
+        state._cardSig = cardSig();
+        return;
+      }
+      const q = state.questions.get(state.active);
+      const total = state.session?.questions?.length || "?";
+      const working = state.pendingQid === q.id;
+
+      const opts = (q.options || []).map((o, i) => {
+        const letter = o.letter || String.fromCharCode(65 + i);
+        const chosen = working && state.pendingLabel === letter;
+        const body = `
+          ${o.detail ? `<h5>Detail</h5><p>${o.detail}</p>` : ""}
+          ${o.miniVisual ? `<div class="option__mini">${renderVisual(o.miniVisual, `viz-${q.id}-o${i}`)}</div>` : ""}
+          ${o.recommended && o.rationale ? `<h5>Why this is recommended</h5><p>${o.rationale}</p>` : ""}
+          ${o.downstream ? `<h5>Downstream</h5><p>${o.downstream}</p>` : ""}
+          ${o.conflict ? `<div class="option__conflict"><strong>Conflict:</strong> ${o.conflict}</div>` : ""}
+          <button class="btn primary choose-btn" data-letter="${esc(letter)}" ${working ? "disabled" : ""}>Choose ${esc(letter)}</button>`;
+        return `<article class="option ${chosen ? "chosen" : ""}" data-letter="${esc(letter)}">
+            <header class="option__head">
+              <span class="opt-letter">${esc(letter)}</span>
+              <span class="opt-title">${esc(o.title || "")}${o.recommended ? `<span class="opt-rec">recommended</span>` : ""}</span>
+              <span class="opt-caret">▸</span>
+              ${o.summary ? `<span class="opt-summary">${esc(o.summary)}</span>` : ""}
+            </header>
+            <div class="option__body">${body}</div>
+          </article>`;
+      }).join("");
+
+      main.innerHTML = `
+        <div class="qhead">Question ${q.id} of ${total}</div>
+        ${(q.context?.paragraphs || []).length ? `<section class="context"><div class="lbl">Context</div>${q.context.paragraphs.map(p => `<p>${p}</p>`).join("")}</section>` : ""}
+        ${renderVisual(q.visual, "viz-" + q.id)}
+        <h1 class="q">${esc(q.question || "")}</h1>
+        <section class="options">${opts}</section>
+        <div class="freeform">
+          <textarea id="ff" placeholder="…or type your own answer" ${working ? "disabled" : ""}></textarea>
+          <div class="row">
+            <button class="btn primary" id="ff-send" ${working ? "disabled" : ""}>Send answer</button>
+            <button class="btn" id="skip-btn" ${working ? "disabled" : ""}>Skip</button>
+          </div>
+        </div>
+        ${working ? `<div class="working-banner"><span class="spinner"></span>Sent <strong>${esc(state.pendingLabel)}</strong> — the agent is composing the next question…</div>` : ""}
+      `;
+
+      // Head click pins the card open (read); hover also expands. The explicit
+      // Choose button commits the answer — reading detail never submits by accident.
+      main.querySelectorAll(".option__head").forEach(head => {
+        head.onclick = () => head.parentElement.classList.toggle("pinned");
+      });
+      main.querySelectorAll(".choose-btn").forEach(btn => {
+        btn.onclick = e => {
+          e.stopPropagation();
+          sendIntent("answer", { value: btn.dataset.letter, label: btn.dataset.letter });
+        };
+      });
+      const ff = main.querySelector("#ff-send");
+      if (ff) ff.onclick = () => {
+        const txt = main.querySelector("#ff").value.trim();
+        if (txt) sendIntent("freeform", { value: txt, label: "your answer" });
+      };
+      const sk = main.querySelector("#skip-btn");
+      if (sk) sk.onclick = () => sendIntent("skip", { label: "skip" });
+
+      // Light up glossary terms in the prose (skips the mermaid/code nodes below)
+      linkGlossary(main);
+
+      // Render mermaid
+      const nodes = main.querySelectorAll(".mermaid");
+      if (nodes.length) {
+        if (!state.mermaidInit) {
+          mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme: "base", themeVariables: mermaidVars() });
+          state.mermaidInit = true;
+        }
+        for (const n of nodes) {
+          try { const { svg } = await mermaid.render(n.dataset.mid, n.dataset.source); n.innerHTML = svg; }
+          catch (e) { n.innerHTML = `<pre class="code">Mermaid error: ${esc(String(e.message || e))}</pre>`; }
+        }
+      }
+      state._cardSig = cardSig();
+    }
+
+    function mermaidVars() {
+      const cs = getComputedStyle(document.documentElement);
+      const g = k => cs.getPropertyValue(k).trim();
+      return { background: g("--surface"), primaryColor: g("--surface"), primaryTextColor: g("--text"),
+        primaryBorderColor: g("--accent"), lineColor: g("--dim"), fontFamily: g("--body"), fontSize: "15px" };
+    }
+
+    // ── Readiness alerts ──────────────────────────────────────────────
+    // When the next card arrives and the user has tabbed away, pull them back:
+    // flash the title, fire a Web Notification, soft beep. All gated on
+    // document.hidden — if they're looking, the card just changes, silently.
+    // Caveat: hidden tabs throttle the poll, so for long absences the alert
+    // can lag by up to a throttled poll interval.
+    const BASE_TITLE = "interactive-plan";
+    let _titleTimer = null;
+    function startTitleFlash(msg) {
+      stopTitleFlash();
+      let on = true;
+      document.title = msg;
+      _titleTimer = setInterval(() => { document.title = (on = !on) ? msg : BASE_TITLE; }, 1000);
+    }
+    function stopTitleFlash() {
+      if (_titleTimer) { clearInterval(_titleTimer); _titleTimer = null; }
+      document.title = BASE_TITLE;
+    }
+    function beep() {
+      try {
+        if (!state._actx) return;
+        const o = state._actx.createOscillator(), g = state._actx.createGain();
+        o.frequency.value = 660; g.gain.value = 0.04;
+        o.connect(g); g.connect(state._actx.destination);
+        o.start(); o.stop(state._actx.currentTime + 0.12);
+      } catch {}
+    }
+    function notifyReady(id) {
+      if (!document.hidden) return;
+      const label = `Q${id}`;
+      startTitleFlash(`● ${label} ready`);
+      if (window.Notification && Notification.permission === "granted") {
+        try { new Notification("interactive-plan", { body: `${label} is ready — your answer is in.` }); } catch {}
+      }
+      beep();
+    }
+    // Called on the committing gesture (a click): unlock audio + ask once.
+    function armAlerts() {
+      if (window.Notification && Notification.permission === "default" && !state._notifyAsked) {
+        state._notifyAsked = true;
+        try { Notification.requestPermission(); } catch {}
+      }
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx && !state._actx) state._actx = new Ctx();
+        if (state._actx && state._actx.state === "suspended") state._actx.resume();
+      } catch {}
+    }
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) stopTitleFlash(); });
+
+    // ── Glossary term reveal ──────────────────────────────────────────
+    // Auto-link any term in session.json.glossary wherever it appears in the
+    // prose (define-once-link-everywhere); click → e-reader-style popover with
+    // its definition. Tier 0: pure client-side, no agent round-trip. Skips
+    // code/mermaid/buttons and won't double-wrap. Terms added mid-card light up
+    // on the next card render (cardSig doesn't track glossary, by design).
+    const TERM_SKIP = new Set(["PRE", "CODE", "BUTTON", "H5", "TEXTAREA", "SCRIPT", "STYLE"]);
+    function linkGlossary(root) {
+      const gloss = (state.session && state.session.glossary) || [];
+      if (!gloss.length) return;
+      const lookup = new Map(gloss.filter(g => g.term).map(g => [g.term.toLowerCase(), g]));
+      const escaped = gloss.map(g => g.term).filter(Boolean)
+        .sort((a, b) => b.length - a.length)              // longest first: "Retry budget" beats "Retry"
+        .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const re = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          for (let p = n.parentElement; p && p !== root; p = p.parentElement) {
+            if (TERM_SKIP.has(p.tagName) || p.classList.contains("mermaid") || p.classList.contains("term"))
+              return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+      const targets = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n);
+      for (const tn of targets) {
+        const text = tn.nodeValue;
+        re.lastIndex = 0;
+        if (!re.test(text)) continue;
+        re.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0, m;
+        while ((m = re.exec(text))) {
+          const g = lookup.get(m[0].toLowerCase());
+          if (!g) continue;
+          if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          const span = document.createElement("span");
+          span.className = "term"; span.tabIndex = 0; span.dataset.term = g.term; span.textContent = m[0];
+          frag.appendChild(span);
+          last = m.index + m[0].length;
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        tn.parentNode.replaceChild(frag, tn);
+      }
+      root.querySelectorAll(".term").forEach(t => {
+        t.onclick = e => { e.stopPropagation(); showTermPopover(t); };
+        t.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showTermPopover(t); } };
+      });
+    }
+    function showTermPopover(el) {
+      const g = (state.session && state.session.glossary || []).find(x => x.term === el.dataset.term);
+      if (!g) return;
+      const pop = document.getElementById("term-popover");
+      pop.innerHTML = `<div class="tp-term">${esc(g.term)}</div><div class="tp-def">${esc(g.definition || "")}</div>`
+        + (g.avoid && g.avoid.length ? `<div class="tp-avoid">Avoid: ${esc(g.avoid.join(", "))}</div>` : "");
+      pop.hidden = false;
+      pop.style.visibility = "hidden"; pop.style.left = "0px"; pop.style.top = "0px";
+      const r = el.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+      const left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+      let top = r.bottom + 6;
+      if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+      pop.style.left = left + "px"; pop.style.top = Math.max(8, top) + "px"; pop.style.visibility = "visible";
+      state._popoverOpen = true;
+    }
+    function hideTermPopover() {
+      const pop = document.getElementById("term-popover");
+      if (!pop.hidden) { pop.hidden = true; state._popoverOpen = false; }
+    }
+    document.addEventListener("click", e => {
+      if (state._popoverOpen && !e.target.closest("#term-popover") && !e.target.classList.contains("term")) hideTermPopover();
+    });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") hideTermPopover(); });
+    window.addEventListener("scroll", () => hideTermPopover(), true);
+
+    setStatus("connecting");
+    pollOnce();
+    setInterval(pollOnce, POLL_MS);
+  </script>
+</body>
+</html>
