@@ -1,0 +1,104 @@
+I need you to analyze a writing corpus to extract personal voice patterns.
+
+**Step 1: Inventory the corpus.**
+Scan the `corpus/` directory. For each content type subdirectory:
+- Count the number of files
+- Note the languages used
+- Flag if there are fewer than 10 total files (warn but continue)
+- Note the content types found
+
+Write the inventory to `analysis/corpus-inventory.md`.
+
+**Step 2: Read and analyze all corpus files.**
+Read ALL files in the corpus and extract patterns across these 8 dimensions:
+
+A. **Sentence patterns**: average length, variation, use of short punchy sentences vs long
+   explanatory ones, parenthetical asides, how you handle lists.
+
+B. **Opening patterns**: how you start blog posts, Slack messages, emails, docs. First
+   sentence structure. Do you use greetings? Jump straight in? Context-set first?
+
+C. **Vocabulary fingerprint**: recurring words/phrases, technical term handling (do you
+   explain jargon or assume knowledge?), informal language, code-switching between languages.
+
+D. **Structural patterns**: how you organize information (chronological, importance-first,
+   problem-solution), use of headers, bullet points, numbered lists, visual aids.
+
+E. **Tone markers**: formality level per content type, humor usage, directness level,
+   how you handle disagreement, how you express uncertainty.
+
+F. **Formatting habits**: bold usage, caps usage, emoji usage, punctuation quirks
+   (Oxford comma? French spacing? Em dashes or colons?), code block usage.
+
+G. **Language-specific patterns** (if bilingual): do you code-switch? Which words stay
+   in the other language? Does formality differ between languages? Greeting/closing
+   conventions per language.
+
+H. **LLM-ism presence**: flag any patterns that look like typical AI-generated text
+   (these might indicate AI-assisted writing in the corpus, or might be false positives
+   from common business language). Note but don't filter yet.
+
+**Step 3: Platform filtering.**
+For each identified pattern, classify it:
+- **VOICE**: appears across multiple content types, or deviates from the platform norm
+  for that content type. This is a genuine personal voice pattern.
+- **PLATFORM**: only appears in one content type and matches that platform's standard
+  conventions (e.g., short messages in Slack, formal greetings in email). Not your voice,
+  just the platform's convention.
+- **BORDERLINE**: appears mostly in one content type but seems like a deliberate choice
+  rather than a convention (e.g., unusually formal Slack messages, emoji in technical docs).
+
+Keep VOICE patterns. Flag BORDERLINE patterns for human review in Pass 2.
+Filter out PLATFORM patterns (but document them for transparency).
+
+**Step 4: Build a customized LLM-ism ban list.**
+Start from this research-backed base list of overrepresented LLM words (Kobak et al. 2025,
+Liang et al. 2024):
+
+Adjectives: delve/delving, actionable, bespoke, bustling, captivating, commendable,
+comprehensive (as filler), cutting-edge, daunting, ever-evolving, game-changing,
+groundbreaking, holistic, impactful, innovative, insightful, intricate, invaluable,
+meticulous, multifaceted, notable, noteworthy, nuanced, paramount, pivotal, profound,
+remarkable, revolutionary, robust (outside technical), seamless, state-of-the-art,
+substantial, tailored, thought-provoking, transformative, unparalleled, unwavering,
+vibrant, whimsical
+
+Nouns: beacon, blueprint (metaphorical), ecosystem (metaphorical), enigma, frontier,
+implications (vague), interplay, intricacies, journey (metaphorical), kaleidoscope,
+landscape (metaphorical), linchpin, metropolis, milestone (metaphorical), paradigm,
+paradigm shift, plethora, quest, realm, resonance, roadmap (metaphorical), synergy,
+tapestry, testament, touchpoint, treasure trove, value proposition
+
+Verbs: align (metaphorical), amplify, bolster, champion, craft (as "craft a solution"),
+delve, elevate, embark, empower, encompass, enhance, enrich, facilitate, foster,
+harness, leverage, navigate (metaphorical), pioneer, resonate, safeguard, shed light,
+showcase, spearhead, streamline (outside technical), supercharge, tailor, transcend,
+underscore, uncover, unleash, unlock, unpack, unravel, unveil, utilize (just say "use")
+
+Adverbs: accordingly, arguably, consequently, effectively (filler), essentially (filler),
+furthermore, hence, holistically, meticulously, moreover, namely, nonetheless,
+notwithstanding, seamlessly, significantly (filler), strategically, subsequently,
+substantially, thereby, therefore (overused), thus, ultimately (overused), undeniably,
+undoubtedly
+
+Then: scan the corpus for any of these words that you ACTUALLY use genuinely (e.g.,
+"robust" in a technical context about system resilience). Remove those from the ban list
+and note the exception with context. Add any personal LLM-isms found in the corpus
+(words that appear suspiciously often and feel AI-generated).
+
+Also build a banned phrases list covering:
+- Scene-setting openers ("In today's fast-paced world...")
+- Importance-flagging filler ("It's important to note...")
+- Grandiose action phrases ("Navigate the complexities of...")
+- Structural gimmicks (compulsive triads, machine-gunned short sentences)
+- Sycophantic openers ("Great question!")
+- Formulaic closings ("I hope this helps!")
+
+**Step 5: Write the voice profile.**
+Write to `analysis/voice-profile.md`:
+- Corpus statistics (total files, per content type, per language)
+- The full voice pattern analysis organized by the 8 dimensions
+- VOICE / PLATFORM / BORDERLINE classification for each pattern
+- The customized LLM-ism ban list with exceptions noted
+- Summary: "Your voice is characterized by..." (3-5 sentences)
+- Any warnings (low sample counts, suspected AI content, missing content types)

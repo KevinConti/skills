@@ -1,0 +1,15 @@
+name: fastmail
+description: Read-only email access via Fastmail JMAP API — list mailboxes, search emails, read messages and threads
+version: 0.1.0
+
+metadata:
+  author: Kevin Conti
+  tags: [email, fastmail, jmap, productivity]
+
+dependencies: []
+
+config:
+  - name: fastmail_api_token
+    description: Fastmail API token (read-only, mail scope). Create at Fastmail → Settings → Privacy & Security → Integrations → API tokens.
+    required: true
+    secret: true

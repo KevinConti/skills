@@ -1,0 +1,5 @@
+emoji: "\U0001F4E7"
+category: productivity
+requires:
+  bins:
+    - python3

@@ -1,0 +1,4 @@
+interface:
+  display_name: Fastmail
+  short_description: "Read-only email access via Fastmail JMAP API"
+  allow_implicit_invocation: true
