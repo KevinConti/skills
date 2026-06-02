@@ -66,7 +66,7 @@ The watcher idles at the OS level — **zero tokens** while waiting. You are inv
 3. React per `kind` (see table in [INTENT-FORMAT.md](./INTENT-FORMAT.md)):
    a. Resolve or park the question in `session.json` with a short `answer`.
    b. **Capture the decision into docs** — this is the deliverable, see "Capturing decisions into docs" below. If the answer pins or changes domain language, update the project's `CONTEXT.md` *now* and add the term to `session.json` → `glossary`. If it clears the ADR bar, write the ADR to `docs/adr/` and append to `session.json` → `adrs`.
-   c. Write the next `q-NN.json` and set `currentQuestion`. If the answer conflicts with existing `CONTEXT.md`/an ADR, surface it on the relevant option's `conflict` field or in `context.paragraphs`.
+   c. Write the next `q-NN.json` and set `currentQuestion`. If the answer conflicts with existing `CONTEXT.md`/an ADR, surface it on the relevant option's `conflict` field or in `context.paragraphs`. **If that was the last question** (nothing left to ask), do NOT write a new card — go straight to **Wrap up**, which closes the viewer out. Leaving it here strands the viewer on "Sent your answer".
 4. **Advance the cursor:** write the max processed `seq` to `inbox.cursor`.
 5. **Re-arm** `session.sh wait <slug>` in the background again.
 6. Send one short chat line. When docs changed, say so: `Got it: per-merchant. CONTEXT.md updated. Q2 is open.` Then end the turn.
@@ -87,7 +87,9 @@ The grilling exists to produce a durable record, not a transcript. As decisions 
 
 ## Authoring option cards
 
-Each option has an always-visible **head** (letter, title, one-line summary, recommended badge) and an **expandable body** the user reveals by hovering or pinning. Fill the body so the expansion is worth it — write `detail`, `downstream`, and (on the recommended option) `rationale`; add a `miniVisual` when a 3–5 line snippet or tiny diagram makes the option concrete; set `conflict` when an option clashes with an earlier decision. The head should be skimmable; the body is where the trade-off lives. Full field table in [INTENT-FORMAT.md](./INTENT-FORMAT.md). Committing is a separate "Choose X" button in the body, so it's fine for the body to be detailed — reading it never submits.
+Each option is a **compact row** (letter, title, one-line summary, recommended badge) in the Decision pane. Hovering or focusing a row reveals that option's detail in the **Evidence pane** on the left, so fill `detail`, `downstream`, and (on the recommended option) `rationale`; add a `miniVisual` when a 3–5 line snippet or tiny diagram makes the option concrete; set `conflict` when an option clashes with an earlier decision. Keep the row skimmable; the Evidence pane is where the trade-off lives. Committing is the explicit **Choose** button on the row, so reading detail never submits. Full field table in [INTENT-FORMAT.md](./INTENT-FORMAT.md).
+
+The layout is **fold-locked**: a typical card (context + visual + question + options) fits one viewport, and only genuinely verbose context/visuals scroll, within the Evidence pane. So keep context to a few sentences and visuals modestly sized.
 
 ## Health check
 
@@ -99,10 +101,12 @@ The user *can* still answer in chat — treat a chat reply exactly like a `freef
 
 ## Wrap up
 
+The viewer holds an optimistic "Sent your answer" state after every answer and only clears it when the next card arrives — so **you must close the session out explicitly**. Never just stop after the last answer; that strands the viewer until it goes stale.
+
 When planning is done (user says so, or you've covered the tree):
 
 1. **Reconcile the docs.** Ensure the project's actual `CONTEXT.md` and any ADRs match `session.json`'s `glossary`/`adrs` — the JSON is a snapshot; the project docs are the source of truth.
-2. Mark every question `resolved`/`parked` in `session.json`.
+2. Mark every question `resolved`/`parked`, and set `session.json` → `"status": "complete"`. This flips the viewer to a "Planning complete" recap. (The viewer also treats *all questions resolved/parked* as complete, so marking the final answer resolved is the floor; `status` is the explicit signal — set both.)
 3. Summarize in chat **which project files changed** plus the resolved answers, and optionally `session.sh stop <slug>` to free the port. The JSON files persist for review.
 
 ## Reading list
@@ -112,11 +116,13 @@ When planning is done (user says so, or you've covered the tree):
 - [ADR-FORMAT.md](./ADR-FORMAT.md) — ADR format and the "all three" bar for when to create one.
 - `scripts/session.sh` — `start` / `status` / `stop` / `url` / `wait`.
 - `scripts/broker.py` — static server + `POST /intent`; `scripts/wait.py` — the doorbell.
-- `templates/viewer.html` — the bidirectional SPA (mermaid + code visuals, one theme).
+- `templates/viewer.html` — the bidirectional SPA: fold-locked Evidence | Decision layout, mermaid + code visuals, inline glossary reveal, one theme.
 
 ## Built
 
-- **Tier-1 intents** — `answer` / `freeform` / `skip`, with expandable option cards (hover/pin to read detail, "Choose" to commit).
+- **Tier-1 intents** — `answer` / `freeform` / `skip`. Compact option rows; hover/focus a row to preview its detail in the Evidence pane, "Choose" on the row to commit.
+- **Fold-locked layout** — thin progress top bar over a two-pane Evidence | Decision split; a typical card fits one viewport, only verbose content scrolls (within a pane). Collapses to a single column under 900px.
+- **Completion state** — when the session is done (`status: "complete"`, or all questions resolved/parked) the viewer shows a "Planning complete" recap of decisions instead of a stuck "Sent your answer" spinner. A soft-timeout also calms the spinner if the agent goes quiet.
 - **Doc output** — updates the project's `CONTEXT.md` glossary and `docs/adr/` ADRs inline as decisions resolve; `session.json` carries the `glossary`/`adrs` delta.
 - **Inline glossary reveal** — every term in `session.json` → `glossary` auto-lights-up wherever it appears in the prose (whole-word, skips code/diagrams, longest-match-first); click → an e-reader-style popover with the definition + "avoid" aliases. Pure client-side, no round-trip. Define-once-link-everywhere.
 - **Readiness alerts** — when the next card arrives and the tab is backgrounded, the viewer flashes the title, fires a Web Notification (permission requested on the first answer), and soft-beeps. Fully client-side; the agent does nothing. Caveat: hidden tabs throttle the poll, so for long absences (>5 min) the alert can lag by up to a throttled interval.

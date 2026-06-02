@@ -72,6 +72,7 @@ case "$cmd" in
       cat >"$dir/session.json" <<JSON
 {
   "slug": "$slug",
+  "status": "active",
   "startedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "contextPath": null,
   "currentQuestion": null,

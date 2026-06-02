@@ -33,6 +33,7 @@ visual-grill-with-docs' one-directional format — here the page talks back.
 ```jsonc
 {
   "slug": "checkout-retry-policy",
+  "status": "active",                   // "active" | "complete" (set "complete" at wrap-up)
   "startedAt": "2026-06-01T16:00:00Z",
   "contextPath": "/CONTEXT.md",         // project's CONTEXT.md path, or null
   "currentQuestion": 2,                 // id to display (null until Q1 exists)
@@ -49,7 +50,13 @@ visual-grill-with-docs' one-directional format — here the page talks back.
 }
 ```
 
-`status` ∈ `pending | resolved | parked`. Include `answer` when resolved/parked.
+A **question**'s `status` ∈ `pending | resolved | parked`. Include `answer` when resolved/parked.
+
+The **session**'s top-level `status` ∈ `active | complete`. Set it to `complete` at
+wrap-up so the viewer shows a "Planning complete" recap instead of sitting on the
+optimistic "Sent your answer" state forever. (The viewer also treats *every*
+question being resolved/parked as complete, so marking the final answer resolved is
+the floor; the explicit `status` is the clean signal.)
 
 `glossary` and `adrs` are the **session delta** — the real glossary lives in the
 project's `CONTEXT.md` and the real ADRs in `docs/adr/`. Don't dump the whole
@@ -95,17 +102,19 @@ delta — when a card references an existing `CONTEXT.md` term, add it here too.
 | `title` | yes | head (escaped) |
 | `summary` | yes | head (escaped) — one line |
 | `recommended` | boolean | adds the head badge; exactly one option should be `true` |
-| `detail` | optional | expanded body — 1–2 paragraphs; **inline HTML allowed** |
-| `rationale` | shown only if `recommended` | expanded body, under "Why this is recommended" |
-| `downstream` | optional | expanded body — what changes elsewhere if chosen |
-| `conflict` | optional | red callout in the body when the option clashes with a prior decision |
-| `miniVisual` | optional | per-option visual in the body; same shape as the top-level `visual` |
+| `detail` | optional | Evidence pane — 1–2 paragraphs; **inline HTML allowed** |
+| `rationale` | shown only if `recommended` | Evidence pane, under "Why recommended" |
+| `downstream` | optional | Evidence pane — what changes elsewhere if chosen |
+| `conflict` | optional | bordered callout in the Evidence pane when the option clashes with a prior decision |
+| `miniVisual` | optional | per-option visual in the Evidence pane; same shape as the top-level `visual` |
 
-**Interaction:** the head (letter / title / summary / badge) is always visible.
-Hovering — or clicking the head to **pin** — expands the body. Committing the
-answer is a **separate** explicit "Choose X" button inside the body, so reading
-detail never submits by accident (and works on touch, where there is no hover).
-An option with none of the body fields shows no caret and no expansion.
+**Interaction (fold-locked two-pane layout).** The Decision pane (right) shows the
+question and a compact row per option (letter / title / one-line summary / rec
+badge). Hovering or focusing a row (tapping it on touch) reveals that option's
+detail in the Evidence pane (left), which otherwise shows the question's context +
+visual. The right pane never reflows, so the page never scrolls past the fold.
+Committing is the explicit **Choose** button on the row, so reading detail never
+submits.
 
 Visuals supported in the prototype SPA: `mermaid` and `code`
 (`{type:"code", filename?, source, highlights?}`), usable for both `visual` and
