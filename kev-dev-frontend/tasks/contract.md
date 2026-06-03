@@ -1,6 +1,10 @@
-# Commit the contract + plan architecture — `interactive-plan` ⛔ *(inline — interactive)*
+# Resolve the design + commit the contract — `interactive-plan` ⛔ *(inline — interactive)*
 
-With the UI pinned, run **`interactive-plan`** to design the **data contract that serves the chosen UI** (shaped to the UI's needs through whatever frontend-facing layer the app has — an adapter/view-model, an API gateway, a tailored endpoint, or client-side transforms), plus the frontend architecture/wiring and domain language. It's interactive (the user answers in the live UI), so it stays **inline**. It updates `CONTEXT.md`/ADRs as decisions land. Behavior flexes by regime:
+This step does double duty: it **resolves the open design questions** from the draft brief *and* designs the **data contract** for the resulting UI — both in `interactive-plan`'s UI, so every question the user answers is in one channel.
+
+Run **`interactive-plan`**, handing it the draft brief (`<BRIEF_PATH>` from the previous step), the open design questions to ask, and the realism floor. Have it ask the **open design questions first** — these pin the UI shape — then design the **data contract that serves that UI** (shaped to the UI's needs through whatever frontend-facing layer the app has — an adapter/view-model, an API gateway, a tailored endpoint, or client-side transforms), plus the frontend architecture/wiring and domain language. It's interactive (the user answers in the live UI), so it stays **inline**.
+
+As decisions land it updates `CONTEXT.md`/ADRs as usual **and keeps the brief current** — fold each resolved design answer into `<BRIEF_PATH>` so the brief ends final and on-disk (it's what handoff and implementation read). Contract behavior flexes by regime:
 
 - **(a) fixed endpoint** — adapt the frozen endpoint to the UI through whatever frontend-facing shaping the app supports (an adapter, view-model, gateway, or client-side transform). If there's no room to adapt and the endpoint genuinely can't serve the UI, surface the gap before continuing.
 - **(b) greenfield endpoint** — finalize the endpoint to serve the UI; write the agreed contract as an **ADR**.
