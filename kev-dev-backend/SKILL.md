@@ -1,17 +1,17 @@
 ---
 name: kev-dev-backend
-description: Kevin's end-to-end backend development pipeline orchestrator. Takes one backend work item — a backlog id/path to a markdown task, or a freeform description — and drives it through the full structured workflow — plan with interactive-plan → validate with plan-review → write a handoff brief → implement → simplify/code-review → security-review → diff-review, honoring a human gate at each review and stopping before commit. To stay lean, the orchestrator delegates every context-heavy step — implementation, both visual-explainer reviews, and the cleanup/security passes — to focused sub-agents that hand back only a summary or an artifact path. Use whenever Kevin invokes /kev-dev-backend, or asks to take a backend task through his dev pipeline / planning-to-shipping process end-to-end. Frontend work has a separate flow. Drive the sub-skills in the fixed order below so no step is skipped and plan-review risks survive into implementation.
+description: An end-to-end backend development pipeline orchestrator. Takes one backend work item — a backlog id/path to a markdown task, or a freeform description — and drives it through the full structured workflow — plan with interactive-plan → validate with plan-review → write a handoff brief → implement → simplify/code-review → security-review → diff-review, honoring a human gate at each review and stopping before commit. To stay lean, the orchestrator delegates every context-heavy step — implementation, both visual-explainer reviews, and the cleanup/security passes — to focused sub-agents that hand back only a summary or an artifact path. Use whenever the user invokes /kev-dev-backend, or asks to take a backend task through this dev pipeline / planning-to-shipping process end-to-end. Frontend work has a separate flow. Drive the sub-skills in the fixed order below so no step is skipped and plan-review risks survive into implementation.
 argument-hint: "<backlog item id/path or description of the work>"
 ---
 
 <what-to-do>
 
-You are the **orchestrator** for Kevin's development pipeline. You take one work item from a backlog task to a reviewed, ship-ready diff by invoking a fixed sequence of sub-skills, pausing at every human gate, and keeping each phase's context clean. You do the orchestration and the gates; the sub-skills and a delegated implementation sub-agent do the work.
+You are the **orchestrator** for this backend development pipeline. You take one work item from a backlog task to a reviewed, ship-ready diff by invoking a fixed sequence of sub-skills, pausing at every human gate, and keeping each phase's context clean. You do the orchestration and the gates; the sub-skills and a delegated implementation sub-agent do the work.
 
 Three standing rules:
 
-1. **Honor every ⛔ gate.** The gates are where Kevin stays an effective collaborator and keeps his mental model of the code. Never skip one to "save time" — the gates *are* the value.
-2. **Never commit or push.** The pipeline ends at diff-review approval and hands back. Committing to `main` is the irreversible step and it's Kevin's to take (see [Handback](#handback--stop-before-commit)).
+1. **Honor every ⛔ gate.** The gates are where the user stays an effective collaborator and keeps their mental model of the code. Never skip one to "save time" — the gates *are* the value.
+2. **Never commit or push.** The pipeline ends at diff-review approval and hands back. Committing to `main` is the irreversible step and it's the user's to take (see [Handback](#handback--stop-before-commit)).
 3. **Keep your own context clean by delegating the heavy steps, not by clearing.** You are a long-lived orchestrator: anything read or generated in *your* context stays resident for the whole run. So push the context-heavy steps into sub-agents that hand back only a summary or an artifact path — implementation (step 4), both visual-explainer reviews (steps 2 and 7), and cleanup/security (step 6). Implementation delegates for *focus*; the review/cleanup skills delegate to *quarantine* their bulky skill-loading and large HTML output from your window. Keep inline only the cheap steps, the human gates, and the one interactive step (`interactive-plan`). See [Why delegate](#context-hygiene--why-delegate-instead-of-clear) and [the review-sub-agent contract](#delegating-the-review-and-cleanup-steps).
 
 </what-to-do>
@@ -24,10 +24,10 @@ Run these in order. Each step says what to invoke, what it consumes/produces, an
 
 ### Preflight — confirm required skills
 
-Claude Code has no skill-level dependency manifest, so nothing guarantees the skills this pipeline calls are present — and built-ins can even be missing in a session running a different Claude Code build. Before step 1, confirm each of these is available in the session. If any is absent, STOP and tell Kevin which ones and where they come from — don't start a pipeline that will die partway through:
+Claude Code has no skill-level dependency manifest, so nothing guarantees the skills this pipeline calls are present — and built-ins can even be missing in a session running a different Claude Code build. Before step 1, confirm each of these is available in the session. If any is absent, STOP and tell the user which ones and where they come from — don't start a pipeline that will die partway through:
 
-- `interactive-plan` — personal skill (in `kevin/`)
-- `handoff` — personal skill (`~/.claude/skills`)
+- `interactive-plan` — personal skill
+- `handoff` — personal skill
 - `visual-explainer:plan-review` and `visual-explainer:diff-review` — visual-explainer plugin (install the `visual-explainer` plugin if missing)
 - `simplify` **or** `code-review`, plus `security-review` — Claude Code built-ins; update Claude Code if missing. (Recent builds renamed `simplify` → `code-review`, so *either* satisfies this check — step 6 uses whichever is present.)
 
@@ -42,13 +42,13 @@ Restate the scope in a sentence or two and confirm you're on the right item befo
 
 ### 1. Plan — `interactive-plan`
 
-Invoke `interactive-plan` to run the planning session — Kevin answers in the live browser UI (chat is the escape hatch), the skill presents a recommended answer per question, and it updates the project's `CONTEXT.md` glossary and ADRs inline as decisions crystallize, refining the work toward implementation-ready.
+Invoke `interactive-plan` to run the planning session — the user answers in the live browser UI (chat is the escape hatch), the skill presents a recommended answer per question, and it updates the project's `CONTEXT.md` glossary and ADRs inline as decisions crystallize, refining the work toward implementation-ready.
 
 Before moving on, make sure the plan exists as a **concrete artifact** — the refined backlog/plan doc plus `CONTEXT.md` and any ADRs — because that's what `plan-review` consumes next.
 
 ### 2. Validate — `visual-explainer:plan-review` ⛔ (delegated)
 
-`visual-explainer:plan-review` produces the visual review (the diagrams Kevin uses to hold his mental model of the codebase) and surfaces the gaps the grill missed. **Do not invoke it inline** — it loads the full visual-explainer reference (hundreds of lines of `SKILL.md` + `css-patterns.md`) and emits a large HTML document, all of which would lodge in your context for the rest of the run. Delegate it to a review sub-agent (see [the review-sub-agent contract](#delegating-the-review-and-cleanup-steps)).
+`visual-explainer:plan-review` produces the visual review (the diagrams the user uses to hold their mental model of the codebase) and surfaces the gaps the grill missed. **Do not invoke it inline** — it loads the full visual-explainer reference (hundreds of lines of `SKILL.md` + `css-patterns.md`) and emits a large HTML document, all of which would lodge in your context for the rest of the run. Delegate it to a review sub-agent (see [the review-sub-agent contract](#delegating-the-review-and-cleanup-steps)).
 
 Spawn one sub-agent with the Agent tool — `subagent_type: general-purpose`, foreground (you need its result before continuing) — with this prompt shape:
 
@@ -62,7 +62,7 @@ list of the findings/gaps it surfaced — the risks, plan deltas, and anything
 the plan does not yet cover. Do NOT paste the HTML or its CSS back.
 ```
 
-⛔ **Gate.** Open the returned HTML for Kevin and present the sub-agent's findings list. Usually the plan's mitigations are sufficient and there's nothing to add. Occasionally a real gap needs a non-trivial change — if so, amend the plan (a focused follow-up grill question, or a direct edit to the plan doc), and if the change is substantial, **re-run plan-review** (spawn a fresh sub-agent). **Hold the findings** — they must reach the handoff doc in step 3. Do not proceed to handoff until Kevin is satisfied the plan is sound.
+⛔ **Gate.** Open the returned HTML for the user and present the sub-agent's findings list. Usually the plan's mitigations are sufficient and there's nothing to add. Occasionally a real gap needs a non-trivial change — if so, amend the plan (a focused follow-up grill question, or a direct edit to the plan doc), and if the change is substantial, **re-run plan-review** (spawn a fresh sub-agent). **Hold the findings** — they must reach the handoff doc in step 3. Do not proceed to handoff until the user is satisfied the plan is sound.
 
 ### 3. Brief — `handoff`
 
@@ -104,7 +104,7 @@ and the result, any deviations from the plan, and anything you escalated.
 
 Present the sub-agent's summary — what it implemented, what it tested, deviations from the plan, anything it escalated.
 
-⛔ **Gate.** Kevin approves proceeding to cleanup, sends it back for fixes (re-delegate with the correction), or takes over manually. This is the fail-fast valve that stands in for the supervision you'd otherwise have *during* implementation — keep it light, because diff-review is the substantive review. If the sub-agent escalated a question, resolve it with Kevin here before continuing.
+⛔ **Gate.** The user approves proceeding to cleanup, sends it back for fixes (re-delegate with the correction), or takes over manually. This is the fail-fast valve that stands in for the supervision you'd otherwise have *during* implementation — keep it light, because diff-review is the substantive review. If the sub-agent escalated a question, resolve it with the user here before continuing.
 
 ### 6. Cleanup — `simplify`/`code-review`, then `security-review` (delegated)
 
@@ -148,24 +148,24 @@ summary — what was completed, remaining issues, and deltas from the plan.
 Do NOT paste the HTML or its CSS back.
 ```
 
-⛔ **Gate.** Open the returned HTML for Kevin and present the summary. Kevin reviews and approves.
+⛔ **Gate.** Open the returned HTML for the user and present the summary. The user reviews and approves.
 
 ### 8. Handback — stop before commit
 
-On approval, **stop**. Do not commit or push. Summarize what's ready to ship and, if useful, draft a commit message Kevin can paste. The push to `main` is his to make.
+On approval, **stop**. Do not commit or push. Summarize what's ready to ship and, if useful, draft a commit message the user can paste. The push to `main` is the user's to make.
 
 ---
 
 ## Context hygiene — why delegate instead of `/clear`
 
-Kevin's pipeline deliberately separates planning from implementation so implementation stays focused and out of the "dumb zone." The classic way to get that boundary is to `/clear` and start a fresh session primed by the handoff doc.
+This pipeline deliberately separates planning from implementation so implementation stays focused and out of the "dumb zone." The classic way to get that boundary is to `/clear` and start a fresh session primed by the handoff doc.
 
 Delegating to a sub-agent (step 4) gives a *better* boundary in both directions:
 
 - **Implementation stays clean** — the sub-agent sees only the handoff brief, never the long planning transcript. (This is the handoff doc's original "clear context" purpose, achieved for free.)
 - **The orchestrator stays clean** — you get back only the sub-agent's *summary*, not every edit and tool call. That matters because the ship phase (reasoning about the diff) needs a clear head of its own, which `/clear` never gave you.
 
-So: do **not** collapse this into one flat context, and do not ask Kevin to `/clear` mid-pipeline. The sub-agent boundary is the mechanism. The `handoff` step still earns its place — it's the brief that primes the sub-agent, and the durable record of plan-review risks.
+So: do **not** collapse this into one flat context, and do not ask the user to `/clear` mid-pipeline. The sub-agent boundary is the mechanism. The `handoff` step still earns its place — it's the brief that primes the sub-agent, and the durable record of plan-review risks.
 
 ## Delegating the review and cleanup steps
 
@@ -175,13 +175,13 @@ So delegate them, with one shared **contract**:
 
 - **`subagent_type: general-purpose`, foreground** (you need the result before continuing); **no worktree isolation** for the step that mutates the tree (6a), so its changes land on the real diff.
 - The sub-agent runs the skill in *its* context and **returns only a compact result** — a findings/summary text, plus (for the visual reviews) the **absolute path to the generated HTML**. It must **not** paste the HTML, CSS, or full file contents back.
-- You open the HTML for Kevin at the gate and present the findings. The heavy reference material and the HTML body never enter your context.
+- You open the HTML for the user at the gate and present the findings. The heavy reference material and the HTML body never enter your context.
 
-This preserves every gate exactly — Kevin still sees the same diagrams and findings — while keeping your window lean enough that a normally-sized item never needs to compact. (Inline steps stay inline for good reasons: `interactive-plan` is live human collaboration with a chat escape hatch that only the top-level session receives; `handoff` is cheap because you already hold the plan context and only need to capture the doc's path; the gates and handback *are* your job.)
+This preserves every gate exactly — the user still sees the same diagrams and findings — while keeping your window lean enough that a normally-sized item never needs to compact. (Inline steps stay inline for good reasons: `interactive-plan` is live human collaboration with a chat escape hatch that only the top-level session receives; `handoff` is cheap because you already hold the plan context and only need to capture the doc's path; the gates and handback *are* your job.)
 
 ## The one tradeoff: implementation is unsupervised
 
-A sub-agent is headless — Kevin can't course-correct it mid-run. His front-loaded planning is what de-risks this, and two things contain it: the **escalation rule** in the sub-agent prompt (halt and ask rather than guess), and the **light checkpoint** in step 5 (a human gate right after implementation). That's far less than full supervision, but it's a real fail-fast valve. If a task is too exploratory to brief well, that's a signal not to use this skill for it (see below).
+A sub-agent is headless — the user can't course-correct it mid-run. The front-loaded planning is what de-risks this, and two things contain it: the **escalation rule** in the sub-agent prompt (halt and ask rather than guess), and the **light checkpoint** in step 5 (a human gate right after implementation). That's far less than full supervision, but it's a real fail-fast valve. If a task is too exploratory to brief well, that's a signal not to use this skill for it (see below).
 
 ## When NOT to use this skill
 
@@ -191,6 +191,6 @@ A sub-agent is headless — Kevin can't course-correct it mid-run. His front-loa
 
 ## Running just the ship half
 
-If the work is already implemented and Kevin wants only the back half, skip to **step 6** and run cleanup → review → handback against the existing diff.
+If the work is already implemented and only the back half is needed, skip to **step 6** and run cleanup → review → handback against the existing diff.
 
 </supporting-info>
